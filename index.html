@@ -286,6 +286,17 @@
   </div>
 </section>
 
+<section class="calibration" id="calibration">
+  <div class="wrap">
+    <div class="section-head"><h2>Confidence calibration</h2><div class="stitch-line"></div></div>
+    <p class="section-sub">A confidence score only means something if it's honest. This plots what the model claims against what actually happened, if a point sits on the diagonal, that confidence tier is well calibrated. Above the line means underconfident, below means overconfident.</p>
+    <div class="chart-wrap" style="height: 320px;">
+      <canvas id="calChart" role="img" aria-label="Scatter plot comparing model confidence to actual win rate, with a diagonal reference line for perfect calibration"></canvas>
+    </div>
+    <p class="code-caption" id="cal-note">Sample size is still small, this becomes more meaningful as more picks get graded over time.</p>
+  </div>
+</section>
+
 <footer>
   <div class="wrap">
     <div class="section-head"><h2>Built with</h2><div class="stitch-line"></div></div>
@@ -410,12 +421,84 @@ function renderPerformance(rows) {
   });
 }
 
+function renderCalibration(rows) {
+  const graded = rows.filter(r => r.result === "WIN" || r.result === "LOSS");
+  const buckets = { 40: [], 50: [], 60: [], 70: [], 80: [], 90: [] };
+  const bucketKeys = Object.keys(buckets).map(Number).sort((a, b) => a - b);
+
+  graded.forEach(r => {
+    const c = parseInt(r.confidence, 10) || 0;
+    let key = bucketKeys[0];
+    for (const k of bucketKeys) { if (c >= k) key = k; }
+    buckets[key].push(r.result === "WIN");
+  });
+
+  const points = bucketKeys
+    .filter(k => buckets[k].length > 0)
+    .map(k => {
+      const results = buckets[k];
+      const actual = Math.round((results.filter(Boolean).length / results.length) * 100);
+      return { x: k + 5, y: actual, n: results.length };
+    });
+
+  const noteEl = document.getElementById("cal-note");
+  if (points.length < 2) {
+    noteEl.textContent = "Not enough graded picks across different confidence tiers yet to plot calibration. Check back once more picks are graded.";
+  } else {
+    noteEl.textContent = "Point size reflects sample size per tier. Sample is still small, treat this as directional, not definitive, until more picks are graded.";
+  }
+
+  new Chart(document.getElementById("calChart"), {
+    type: "scatter",
+    data: {
+      datasets: [
+        {
+          label: "Perfect calibration",
+          data: [{ x: 0, y: 0 }, { x: 100, y: 100 }],
+          type: "line",
+          borderColor: "#A8A398",
+          borderDash: [4, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false
+        },
+        {
+          label: "Actual",
+          data: points,
+          backgroundColor: "#A8382B",
+          pointRadius: points.map(p => Math.max(5, Math.min(16, p.n * 2))),
+          pointHoverRadius: points.map(p => Math.max(7, Math.min(18, p.n * 2 + 2)))
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ctx.datasetIndex === 1
+              ? `Confidence ~${ctx.raw.x}% -> actual ${ctx.raw.y}% (n=${ctx.raw.n})`
+              : "Perfect calibration line"
+          }
+        }
+      },
+      scales: {
+        x: { min: 0, max: 100, title: { display: true, text: "Model confidence", color: "#55524A", font: { family: "IBM Plex Mono", size: 11 } }, ticks: { color: "#55524A", font: { family: "IBM Plex Mono" } }, grid: { color: "#e5e0d2" } },
+        y: { min: 0, max: 100, title: { display: true, text: "Actual win rate", color: "#55524A", font: { family: "IBM Plex Mono", size: 11 } }, ticks: { color: "#55524A", font: { family: "IBM Plex Mono" } }, grid: { color: "#e5e0d2" } }
+      }
+    }
+  });
+}
+
 fetch(CSV_URL)
   .then(r => { if (!r.ok) throw new Error("no data yet"); return r.text(); })
   .then(text => {
     const rows = parseCSV(text);
     renderPicks(rows);
     renderPerformance(rows);
+    renderCalibration(rows);
   })
   .catch(() => {
     document.getElementById("picks-status").textContent = "Picks log not found yet — check back after the next scheduled run.";
