@@ -323,7 +323,22 @@ function parseCSV(text) {
 function renderPicks(rows) {
   const dates = [...new Set(rows.map(r => r.date_logged))].sort().reverse();
   const latestDate = dates[0];
-  const latest = rows.filter(r => r.date_logged === latestDate).slice(0, 6);
+  const todaysRows = rows.filter(r => r.date_logged === latestDate);
+
+  // Match Discord's exact selection: sort by win/cover probability, then
+  // confidence, descending, THEN take the top 6 — not just "however they
+  // happen to be ordered in the file". Otherwise the site and Discord can
+  // legitimately show two different sets of 6 from the same day's data.
+  const sorted = [...todaysRows].sort((a, b) => {
+    const probA = parseFloat(a.win_prob_pct) || 0;
+    const probB = parseFloat(b.win_prob_pct) || 0;
+    if (probB !== probA) return probB - probA;
+    const confA = parseFloat(a.confidence) || 0;
+    const confB = parseFloat(b.confidence) || 0;
+    return confB - confA;
+  });
+  const latest = sorted.slice(0, 6);
+
   const list = document.getElementById("picks-list");
   const status = document.getElementById("picks-status");
 
